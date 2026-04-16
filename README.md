@@ -45,6 +45,7 @@
 
 - [ ] Tamagotchi thing
 - [ ] BLE receiver
+- [ ] HID as keyboard/mouse
 - [ ] Some WiFi??
 - [ ] 2FA key
 
