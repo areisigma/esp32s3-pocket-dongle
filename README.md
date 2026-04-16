@@ -2,6 +2,8 @@
 
 > Universal pendrive - USB Storage/BLE receiver/tamagotchi
 
+![Pocket Dongle](img/packet-dongle.png)
+
 ---
 
 ## Table of contents
