@@ -20,22 +20,23 @@
 static void action_sd_info();
 static void action_usb_mode();
 
+// ── State ─────────────────────────────────────────────────────────────────────
+static bool s_usb_active = false;   // USB MSC started → SD SPI bus no longer ours
+static int  s_selected   = 0;
+
 // ── Menu table ────────────────────────────────────────────────────────────────
 struct MenuItem {
     const char *label;
     void        (*action)();
+    bool        *active;   // nullptr, or pointer to flag that says item is "on"
 };
 
 static const MenuItem ITEMS[] = {
-    { "SD Info",     action_sd_info  },
-    { "USB Storage", action_usb_mode },
+    { "SD Info",     action_sd_info,  nullptr        },
+    { "USB Storage", action_usb_mode, &s_usb_active  },
 };
 
 static const int NUM_ITEMS = (int)(sizeof(ITEMS) / sizeof(ITEMS[0]));
-
-// ── State ─────────────────────────────────────────────────────────────────────
-static int  s_selected   = 0;
-static bool s_usb_active = false;   // USB MSC started → SD SPI bus no longer ours
 
 // ── Layout ───────────────────────────────────────────────────────────────────
 static const int16_t TITLE_H  = 14;   // title bar height
@@ -60,19 +61,39 @@ static void draw_menu() {
         int16_t fy = FIRST_Y + (int16_t)i * (ITEM_H + ITEM_GAP);
         int16_t ty = fy + 3;   // text baseline within row
 
+        bool active   = ITEMS[i].active && *ITEMS[i].active;
         bool disabled = s_usb_active && (i == 0);   // SD Info locked when USB active
+        bool cursor   = (i == s_selected);
 
-        if (i == s_selected) {
-            uint16_t bg = disabled ? 0x2000 : 0x001F;   // dark red vs. blue
-            gfx->fillRect(0, fy, 80, ITEM_H, bg);
-            gfx->setTextColor(disabled ? 0x8410 : 0xFFFF);
-        } else {
-            gfx->fillRect(0, fy, 80, ITEM_H, 0x0000);   // black
-            gfx->setTextColor(disabled ? 0x4208 : 0x8410);
-        }
+        // Background colour:
+        //   active + cursor  → green   (press to deactivate)
+        //   active only      → dark green
+        //   disabled+cursor  → dark red
+        //   cursor only      → blue
+        //   otherwise        → black
+        uint16_t bg;
+        if      (active   && cursor)  bg = 0x0320;   // green
+        else if (active)              bg = 0x01A0;   // dark green
+        else if (disabled && cursor)  bg = 0x2000;   // dark red
+        else if (cursor)              bg = 0x001F;   // blue
+        else                          bg = 0x0000;   // black
+        gfx->fillRect(0, fy, 80, ITEM_H, bg);
 
+        // Text colour:
+        uint16_t tc;
+        if      (disabled)            tc = cursor ? 0x8410 : 0x4208;   // gray
+        else if (active   && cursor)  tc = 0xFFFF;   // white on green
+        else if (active)              tc = 0x07E0;   // bright green
+        else if (cursor)              tc = 0xFFFF;   // white on blue
+        else                          tc = 0x8410;   // gray
+        gfx->setTextColor(tc);
+
+        // Arrow / indicator symbol:
+        //   active  → "*"  (item is on)
+        //   cursor  → ">"  (cursor here)
+        //   else    → " "
         gfx->setCursor(2, ty);
-        gfx->print(i == s_selected ? ">" : " ");
+        gfx->print(active ? "*" : (cursor ? ">" : " "));
         gfx->setCursor(12, ty);
         gfx->print(ITEMS[i].label);
     }
@@ -112,14 +133,19 @@ static void action_sd_info() {
 }
 
 static void action_usb_mode() {
-    if (!s_usb_active) {
+    if (s_usb_active) {
+        // Eject USB drive and restart – TinyUSB cannot be re-started at runtime
+        gfx->fillScreen(0x0000);
+        gfx->setTextSize(1);
+        display_print_line(2, 16, "Ejecting USB...", 0xFFE0);
+        display_print_line(2, 36, "Restarting...",  0x07FF);
+        usb_msc_end();   // signals eject, then calls esp_restart() – no return
+    } else {
         bool ok = usb_msc_init();
         if (ok) s_usb_active = true;
         display_usb_screen(ok);
-    } else {
-        display_usb_screen(true);   // already active, just redraw
     }
-    while (button_read() == BTN_NONE) {}
+    delay(1000);
     draw_menu();
 }
 

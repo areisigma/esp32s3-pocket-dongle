@@ -1,11 +1,15 @@
 // usb_msc.cpp – USB Mass Storage Class backed by the SD card.
 //
 // Flow:
-//   1. sdcard_end()          – unmounts Arduino FAT layer, frees SPI2 bus
-//   2. spi_bus_initialize()  – re-claims SPI2 via ESP-IDF
+//   1. sdcard_end()          – unmounts Arduino FAT layer, frees SPI3 (HSPI) bus
+//   2. spi_bus_initialize()  – re-claims SPI3 via ESP-IDF
 //   3. sdspi_host_init()     – low-level SDSPI host (no FAT)
 //   4. sdmmc_card_init()     – raw card handle for sector read/write
 //   5. USBMSC + USB.begin()  – expose card as a block device to the USB host
+//
+// NOTE: The SD card uses HSPI (SPI3_HOST, pins 16/17/18/47).
+//       The display uses FSPI (SPI2_HOST, pins 10/11/12/13).
+//       Using SPI3_HOST here avoids breaking the display bus.
 //
 // The host PC now owns the filesystem; the ESP32 must NOT write to the card
 // while USB MSC is active.
@@ -62,7 +66,7 @@ bool usb_msc_init() {
     bus_cfg.quadhd_io_num  = -1;
     bus_cfg.max_transfer_sz = 4000;
 
-    esp_err_t ret = spi_bus_initialize(SPI2_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
+    esp_err_t ret = spi_bus_initialize(SPI3_HOST, &bus_cfg, SPI_DMA_CH_AUTO);
     if (ret != ESP_OK && ret != ESP_ERR_INVALID_STATE) return false;
 
     // 3. Initialize SDSPI host
@@ -71,7 +75,7 @@ bool usb_msc_init() {
 
     sdspi_device_config_t dev_cfg = SDSPI_DEVICE_CONFIG_DEFAULT();
     dev_cfg.gpio_cs = (gpio_num_t)SD_CS;
-    dev_cfg.host_id = SPI2_HOST;
+    dev_cfg.host_id = SPI3_HOST;
 
     ret = sdspi_host_init_device(&dev_cfg, &s_dev);
     if (ret != ESP_OK) return false;
@@ -100,4 +104,14 @@ bool usb_msc_init() {
 
     USB.begin();
     return true;
+}
+
+void usb_msc_end() {
+    // Signal to the USB host that the drive has been ejected
+    s_msc.mediaPresent(false);
+    delay(250);   // give the host OS time to react before we disappear
+    s_msc.end();
+    // TinyUSB cannot be cleanly re-started at runtime; a full reset is the
+    // only reliable way to return to normal SD + menu operation.
+    esp_restart();
 }
