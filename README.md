@@ -40,4 +40,4 @@
 
 ## License
 
-Projekt udostępniony na licencji MIT.
+This project is licensed under the MIT License.
