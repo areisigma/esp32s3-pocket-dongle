@@ -15,17 +15,17 @@
 ## TFT pins
 
 #define TFT_SCLK 10 </br>
-#define TFT_MOSI 11
-#define TFT_CS   12
-#define TFT_DC   13
-#define TFT_RST  14
+#define TFT_MOSI 11 </br>
+#define TFT_CS   12 </br>
+#define TFT_DC   13 </br>
+#define TFT_RST  14 </br>
 
 ## SD card pins
 
-#define SD_MISO 16
-#define SD_MOSI 18
-#define SD_SCK  17
-#define SD_CS   47
+#define SD_MISO 16 </br>
+#define SD_MOSI 18 </br>
+#define SD_SCK  17 </br>
+#define SD_CS   47 </br>
 
 ---
 
