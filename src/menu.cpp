@@ -15,6 +15,7 @@
 #include "display.h"
 #include "sdcard.h"
 #include "usb_msc.h"
+#include <Preferences.h>
 
 // ── Paleta kolorów – zmień wartości RGB, aby dostosować wygląd menu ──────────
 //   RGB565(r,g,b) pochodzi z Arduino_GFX.h – przelicza kolor 24-bitowy na
@@ -54,10 +55,13 @@
 // ── Forward declarations ──────────────────────────────────────────────────────
 static void action_sd_info();
 static void action_usb_mode();
+static void action_rotate_screen();
 
 // ── State ─────────────────────────────────────────────────────────────────────
-static bool s_usb_active = false;   // USB MSC started → SD SPI bus no longer ours
-static int  s_selected   = 0;
+static bool        s_usb_active = false;   // USB MSC started → SD SPI bus no longer ours
+static bool        s_rotated    = false;   // display rotated 180°
+static int         s_selected   = 0;
+static Preferences s_prefs;
 
 // ── Menu table ────────────────────────────────────────────────────────────────
 struct MenuItem {
@@ -67,8 +71,9 @@ struct MenuItem {
 };
 
 static const MenuItem ITEMS[] = {
-    { "SD Info",     action_sd_info,  nullptr        },
-    { "USB Storage", action_usb_mode, &s_usb_active  },
+    { "SD Info",     action_sd_info,       nullptr        },
+    { "USB Storage", action_usb_mode,      &s_usb_active  },
+    { "Flip Screen", action_rotate_screen, &s_rotated     },
 };
 
 static const int NUM_ITEMS = (int)(sizeof(ITEMS) / sizeof(ITEMS[0]));
@@ -187,8 +192,18 @@ static void action_usb_mode() {
     draw_menu();
 }
 
+static void action_rotate_screen() {
+    s_rotated = !s_rotated;
+    gfx->setRotation(s_rotated ? 3 : 1);
+    s_prefs.putBool("rotated", s_rotated);
+    draw_menu();
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 void menu_init() {
+    s_prefs.begin("display", false);
+    s_rotated = s_prefs.getBool("rotated", false);
+    if (s_rotated) gfx->setRotation(3);
     draw_menu();
 }
 
