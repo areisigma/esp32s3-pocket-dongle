@@ -38,6 +38,10 @@
 #define COL_ITEM_DISABLED_TEXT      RGB565( 64,  64,  64)   // tekst opcji niedostępnej
 #define COL_ITEM_DISABLED_CURSOR_TEXT RGB565(128, 128, 128) // tekst opcji niedostępnej podświetlonej kursorem
 
+// Wiersz podświetlony po przekroczeniu progu długiego naciśnięcia (oczekiwanie na puszczenie)
+#define COL_ITEM_CONFIRMED_BG       RGB565(80, 60,   250)   // potwierdzone – czekaj na puszczenie (oranż)
+#define COL_ITEM_CONFIRMED_TEXT     RGB565(255, 255, 255)   // tekst potwierdzonego wiersza
+
 // Linia i napisy w stopce (podpowiedź obsługi przycisku)
 #define COL_FOOTER                  RGB565( 64,  64,  64)   // linia podziału i tekst stopki
 
@@ -76,6 +80,46 @@ static const int16_t ITEM_GAP =  5;   // gap between items
 static const int16_t FIRST_Y  = TITLE_H + 6;   // y of first item fill-rect
 
 // ── Drawing ───────────────────────────────────────────────────────────────────
+
+// Draw a single item row.  confirmed=true means threshold was crossed – paint
+// in orange to signal "release to activate" (button still held).
+static void draw_item_row(int i, bool confirmed) {
+    int16_t fy = FIRST_Y + (int16_t)i * (ITEM_H + ITEM_GAP);
+    int16_t ty = fy + 3;
+
+    bool active   = ITEMS[i].active && *ITEMS[i].active;
+    bool disabled = s_usb_active && (i == 0);
+    bool cursor   = (i == s_selected);
+
+    uint16_t bg;
+    if      (confirmed && cursor)  bg = COL_ITEM_CONFIRMED_BG;
+    else if (active   && cursor)   bg = COL_ITEM_ACTIVE_CURSOR_BG;
+    else if (active)               bg = COL_ITEM_ACTIVE_BG;
+    else if (disabled && cursor)   bg = COL_ITEM_DISABLED_CURSOR_BG;
+    else if (cursor)               bg = COL_ITEM_CURSOR_BG;
+    else                           bg = COL_ITEM_BG;
+    gfx->fillRect(0, fy, 80, ITEM_H, bg);
+
+    uint16_t tc;
+    if      (confirmed && cursor)  tc = COL_ITEM_CONFIRMED_TEXT;
+    else if (disabled)             tc = cursor ? COL_ITEM_DISABLED_CURSOR_TEXT : COL_ITEM_DISABLED_TEXT;
+    else if (active   && cursor)   tc = COL_ITEM_CURSOR_TEXT;
+    else if (active)               tc = COL_ITEM_ACTIVE_TEXT;
+    else if (cursor)               tc = COL_ITEM_CURSOR_TEXT;
+    else                           tc = COL_ITEM_TEXT;
+    gfx->setTextColor(tc);
+
+    // Arrow / indicator symbol:
+    //   confirmed → "!"  (threshold crossed, release to activate)
+    //   active    → "*"  (item is on)
+    //   cursor    → ">"  (cursor here)
+    //   else      → " "
+    gfx->setCursor(2, ty);
+    gfx->print(confirmed ? "v" : (active ? "*" : (cursor ? ">" : " ")));
+    gfx->setCursor(12, ty);
+    gfx->print(ITEMS[i].label);
+}
+
 static void draw_menu() {
     gfx->fillScreen(COL_ITEM_BG);
     gfx->setTextWrap(false);
@@ -89,44 +133,7 @@ static void draw_menu() {
 
     // Item rows
     for (int i = 0; i < NUM_ITEMS; i++) {
-        int16_t fy = FIRST_Y + (int16_t)i * (ITEM_H + ITEM_GAP);
-        int16_t ty = fy + 3;   // text baseline within row
-
-        bool active   = ITEMS[i].active && *ITEMS[i].active;
-        bool disabled = s_usb_active && (i == 0);   // SD Info locked when USB active
-        bool cursor   = (i == s_selected);
-
-        // Background colour:
-        //   active + cursor  → green   (press to deactivate)
-        //   active only      → dark green
-        //   disabled+cursor  → dark red
-        //   cursor only      → blue
-        //   otherwise        → black
-        uint16_t bg;
-        if      (active   && cursor)  bg = COL_ITEM_ACTIVE_CURSOR_BG;
-        else if (active)              bg = COL_ITEM_ACTIVE_BG;
-        else if (disabled && cursor)  bg = COL_ITEM_DISABLED_CURSOR_BG;
-        else if (cursor)              bg = COL_ITEM_CURSOR_BG;
-        else                          bg = COL_ITEM_BG;
-        gfx->fillRect(0, fy, 80, ITEM_H, bg);
-
-        // Text colour:
-        uint16_t tc;
-        if      (disabled)            tc = cursor ? COL_ITEM_DISABLED_CURSOR_TEXT : COL_ITEM_DISABLED_TEXT;
-        else if (active   && cursor)  tc = COL_ITEM_CURSOR_TEXT;
-        else if (active)              tc = COL_ITEM_ACTIVE_TEXT;
-        else if (cursor)              tc = COL_ITEM_CURSOR_TEXT;
-        else                          tc = COL_ITEM_TEXT;
-        gfx->setTextColor(tc);
-
-        // Arrow / indicator symbol:
-        //   active  → "*"  (item is on)
-        //   cursor  → ">"  (cursor here)
-        //   else    → " "
-        gfx->setCursor(2, ty);
-        gfx->print(active ? "*" : (cursor ? ">" : " "));
-        gfx->setCursor(12, ty);
-        gfx->print(ITEMS[i].label);
+        draw_item_row(i, false);
     }
 
     // Footer
@@ -186,7 +193,13 @@ void menu_init() {
 }
 
 void menu_tick() {
-    ButtonEvent ev = button_read();
+    ButtonEvent ev = button_read([]() {
+        // Threshold crossed – redraw selected row in "confirmed" colour;
+        // actual action fires only on release (BTN_LONG below).
+        gfx->setTextWrap(false);
+        gfx->setTextSize(1);
+        draw_item_row(s_selected, true);
+    });
     if (ev == BTN_NONE) return;
 
     if (ev == BTN_SHORT) {

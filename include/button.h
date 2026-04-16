@@ -11,4 +11,6 @@ void        button_init();
 
 // Non-blocking if button is not pressed (returns BTN_NONE immediately).
 // Blocking while button is held: waits for release, then classifies event.
-ButtonEvent button_read();
+// on_long_threshold – optional callback called once when LONG_PRESS_MS is
+// crossed (button still held); useful for visual feedback before release.
+ButtonEvent button_read(void (*on_long_threshold)() = nullptr);
