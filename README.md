@@ -1,2 +1,45 @@
-# esp32s3-pocket-dongle
-Pocket dongle software - pendrive/BLE receiver/tamagotchi
+# ESP32-S3 Pocket Dongle
+
+> Universal pendrive - USB Storage/BLE receiver/tamagotchi
+
+![Pocket Dongle](img/packet-dongle.png)
+
+---
+
+## Table of contents
+
+- [TFT pins](#tft)
+- [SD Card pins](#sd-card)
+- [To do](#todo)
+
+---
+
+## TFT pins
+
+#define TFT_SCLK 10 </br>
+#define TFT_MOSI 11 </br>
+#define TFT_CS   12 </br>
+#define TFT_DC   13 </br>
+#define TFT_RST  14 </br>
+
+## SD card pins
+
+#define SD_MISO 16 </br>
+#define SD_MOSI 18 </br>
+#define SD_SCK  17 </br>
+#define SD_CS   47 </br>
+
+---
+
+## To do
+
+- [ ] Tamagotchi thing
+- [ ] BLE receiver
+- [ ] Some WiFi??
+- [ ] 2FA key
+
+---
+
+## License
+
+This project is licensed under the MIT License.
