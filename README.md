@@ -31,6 +31,16 @@
 
 ---
 
+## Done
+
+- [ ] Nice sine bootload animation
+- [ ] Basic menu with coloring
+- [ ] SD handling
+- [ ] USB Storage
+- [ ] Screen rotation
+
+---
+
 ## To do
 
 - [ ] Tamagotchi thing
