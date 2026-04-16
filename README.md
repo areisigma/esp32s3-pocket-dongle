@@ -14,7 +14,7 @@
 
 ## TFT pins
 
-#define TFT_SCLK 10
+#define TFT_SCLK 10 </br>
 #define TFT_MOSI 11
 #define TFT_CS   12
 #define TFT_DC   13
