@@ -3,7 +3,7 @@
 
 // BOOT button on ESP32-S3 – active LOW, internal pull-up
 #define BUTTON_PIN    0
-#define LONG_PRESS_MS 600    // ms threshold: short vs. long press
+#define LONG_PRESS_MS 500    // ms threshold: short vs. long press
 
 enum ButtonEvent : uint8_t { BTN_NONE, BTN_SHORT, BTN_LONG };
 

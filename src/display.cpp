@@ -82,6 +82,7 @@ void display_error(const String &msg) {
 
 void display_sd_stats(const SDStats &stats) {
   gfx->fillScreen(0x0000);
+  gfx->setTextWrap(false);
   gfx->setTextSize(1);
 
   display_print_line(2,  2, "SD CARD INFO",                                  0xFFE0);
@@ -89,13 +90,16 @@ void display_sd_stats(const SDStats &stats) {
   display_print_line(2, 34, "Total: " + sdcard_format_mb(stats.totalBytes),  0xFFFF);
   display_print_line(2, 48, "Used:  " + sdcard_format_mb(stats.usedBytes),   0xFFFF);
   display_print_line(2, 62, "Free:  " + sdcard_format_mb(stats.freeBytes),   0xFFFF);
-  display_print_line(2, 76, "Use:   " + String(stats.usedPct, 1) + "%",      0xFFFF);
 
-  int16_t barX = 2, barY = 94, barW = 76, barH = 10;
+  // pasek zajętości z procentem – osobny wiersz
+  int16_t barX = 90, barY = 0, barW = 40, barH = 10;
   int16_t fillW = (int16_t)((barW - 2) * stats.usedPct / 100.0f);
   gfx->drawRect(barX, barY, barW, barH, 0xFFFF);
   if (fillW > 0)
     gfx->fillRect(barX + 1, barY + 1, fillW, barH - 2, 0x07E0);
+  gfx->setTextColor(0xFFFF);
+  gfx->setCursor(135, barY + 2);
+  gfx->print(String((int)stats.usedPct) + "%");
 }
 
 void display_usb_screen(bool ready) {

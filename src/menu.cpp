@@ -73,7 +73,7 @@ struct MenuItem {
 static const MenuItem ITEMS[] = {
     { "SD Info",     action_sd_info,       nullptr        },
     { "USB Storage", action_usb_mode,      &s_usb_active  },
-    { "Flip Screen", action_rotate_screen, &s_rotated     },
+    { "Flip Screen", action_rotate_screen, nullptr        },
 };
 
 static const int NUM_ITEMS = (int)(sizeof(ITEMS) / sizeof(ITEMS[0]));

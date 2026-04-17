@@ -40,5 +40,16 @@ void sdcard_end() {
 }
 
 String sdcard_format_mb(uint64_t bytes) {
-  return String((double)bytes / (1024.0 * 1024.0), 1) + " MB";
+  const uint64_t MB = 1024ULL * 1024;
+  const uint64_t GB = 1024ULL * 1024 * 1024;
+  if (bytes >= 1000ULL * GB) {
+    return String((double)bytes / (GB * 1024.0), 1) + " TB"; // e.g. "1.5 TB"
+  }
+  if (bytes >= 1000ULL * MB) {           // >= 1000 MB → show as GB
+    double gb = (double)bytes / GB;
+    if (gb >= 10.0)
+      return String((int)gb) + " GB";    // e.g. "32 GB"
+    return String(gb, 1) + " GB";        // e.g. "8.5 GB"
+  }
+  return String((int)(bytes / MB)) + " MB"; // e.g. "512 MB"
 }
