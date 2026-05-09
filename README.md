@@ -38,13 +38,13 @@
 - [ ] SD handling
 - [ ] USB Storage
 - [ ] Screen rotation
+- [ ] Tamagotchi thing
+- [ ] BLE receiver
 
 ---
 
 ## To do
 
-- [ ] Tamagotchi thing
-- [ ] BLE receiver
 - [ ] HID as keyboard/mouse
 - [ ] Some WiFi??
 - [ ] 2FA key
