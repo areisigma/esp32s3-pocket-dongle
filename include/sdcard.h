@@ -10,7 +10,7 @@ struct SDStats {
   float    usedPct;
 };
 
-// Initialise SD on the dedicated HSPI bus.
+// Initialise SD card (SPI or SDMMC – selected via USE_SDMMC in sdcard.cpp).
 // Returns true on success, false if mount failed or no card detected.
 bool    sdcard_init();
 
@@ -22,5 +22,7 @@ void    sdcard_end();
 SDStats sdcard_stats();
 
 // Helpers – usable by any module that needs to format SD data.
-String  sdcard_type_name(uint8_t type);
-String  sdcard_format_mb(uint64_t bytes);
+String      sdcard_type_name(uint8_t type);
+String      sdcard_format_mb(uint64_t bytes);
+const char* sdcard_bus_name();   // returns "SPI" or "MMC" (compile-time)
+uint8_t     sdcard_bus_width();  // returns 1, 4 (SDMMC) or 0 (SPI)

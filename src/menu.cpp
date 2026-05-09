@@ -4,17 +4,17 @@
 //   Short press  (<600 ms)  →  move highlight to next item
 //   Long  press  (≥600 ms)  →  activate highlighted item
 //
-// Screen layout (80 × 160, portrait):
-//   y=  0..13   title bar
-//   y= 20..     item rows  (one per entry, 13 px tall, 5 px gap)
-//   y=138       divider
-//   y=141,151   footer hints
+// Orientations:
+//   Landscape (160×80) – default: up to 4 items per page, compact footer.
+//   Portrait  ( 80×160) – flipped 90°: up to 6 items per page, 2-line footer.
 // ─────────────────────────────────────────────────────────────────────────────
 #include "menu.h"
 #include "button.h"
 #include "display.h"
 #include "sdcard.h"
 #include "usb_msc.h"
+#include "tamagotchi.h"
+#include "bluetooth_kbd.h"
 #include <Preferences.h>
 
 // ── Paleta kolorów – zmień wartości RGB, aby dostosować wygląd menu ──────────
@@ -56,11 +56,14 @@
 static void action_sd_info();
 static void action_usb_mode();
 static void action_rotate_screen();
+static void action_tamagotchi();
+static void action_bluetooth();
 
 // ── State ─────────────────────────────────────────────────────────────────────
 static bool        s_usb_active = false;   // USB MSC started → SD SPI bus no longer ours
-static bool        s_rotated    = false;   // display rotated 180°
+static uint8_t     s_rotation   = 1;       // GFX rotation value 0–3 (steps of 90°)
 static int         s_selected   = 0;
+static int         s_page       = 0;       // current menu page (pagination)
 static Preferences s_prefs;
 
 // ── Menu table ────────────────────────────────────────────────────────────────
@@ -74,22 +77,39 @@ static const MenuItem ITEMS[] = {
     { "SD Info",     action_sd_info,       nullptr        },
     { "USB Storage", action_usb_mode,      &s_usb_active  },
     { "Flip Screen", action_rotate_screen, nullptr        },
+    { "Tamagotchi",  action_tamagotchi,    nullptr        },
+    { "Bluetooth",   action_bluetooth,     nullptr        },
 };
 
 static const int NUM_ITEMS = (int)(sizeof(ITEMS) / sizeof(ITEMS[0]));
 
 // ── Layout ───────────────────────────────────────────────────────────────────
-static const int16_t TITLE_H  = 14;   // title bar height
-static const int16_t ITEM_H   = 13;   // fill-rect height per item
-static const int16_t ITEM_GAP =  5;   // gap between items
-static const int16_t FIRST_Y  = TITLE_H + 6;   // y of first item fill-rect
+// Portrait (80×160): tall layout, up to 6 items per page, 2-line footer.
+// Landscape (160×80): compact layout, up to 4 items per page, 1-line footer.
+static bool    is_portrait()    { return gfx->height() > gfx->width(); }   // true for rotation 0 or 2
+static int16_t menu_width()     { return (int16_t)gfx->width(); }
+static int     items_per_page() { return is_portrait() ? 6 : 4; }
+static int     total_pages()    { return (NUM_ITEMS + items_per_page() - 1) / items_per_page(); }
+
+static int16_t title_h()  { return is_portrait() ? 14 : 12; }
+static int16_t item_h()   { return is_portrait() ? 13 : 12; }
+static int16_t item_gap() { return is_portrait() ?  5 :  2; }
+static int16_t first_y()  { return title_h() + (is_portrait() ? 6 : 2); }
+static int16_t footer_y() { return is_portrait() ? 138 : 70; }
+static int16_t hint1_y()  { return is_portrait() ? 141 : 72; }
+static int16_t hint2_y()  { return 151; }  // portrait only
 
 // ── Drawing ───────────────────────────────────────────────────────────────────
 
 // Draw a single item row.  confirmed=true means threshold was crossed – paint
 // in orange to signal "release to activate" (button still held).
 static void draw_item_row(int i, bool confirmed) {
-    int16_t fy = FIRST_Y + (int16_t)i * (ITEM_H + ITEM_GAP);
+    // i = absolute item index; skip if not on current page
+    int page_start = s_page * items_per_page();
+    int row = i - page_start;
+    if (row < 0 || row >= items_per_page()) return;
+
+    int16_t fy = first_y() + (int16_t)row * (item_h() + item_gap());
     int16_t ty = fy + 3;
 
     bool active   = ITEMS[i].active && *ITEMS[i].active;
@@ -103,7 +123,7 @@ static void draw_item_row(int i, bool confirmed) {
     else if (disabled && cursor)   bg = COL_ITEM_DISABLED_CURSOR_BG;
     else if (cursor)               bg = COL_ITEM_CURSOR_BG;
     else                           bg = COL_ITEM_BG;
-    gfx->fillRect(0, fy, 80, ITEM_H, bg);
+    gfx->fillRect(0, fy, menu_width(), item_h(), bg);
 
     uint16_t tc;
     if      (confirmed && cursor)  tc = COL_ITEM_CONFIRMED_TEXT;
@@ -115,7 +135,7 @@ static void draw_item_row(int i, bool confirmed) {
     gfx->setTextColor(tc);
 
     // Arrow / indicator symbol:
-    //   confirmed → "!"  (threshold crossed, release to activate)
+    //   confirmed → "v"  (threshold crossed, release to activate)
     //   active    → "*"  (item is on)
     //   cursor    → ">"  (cursor here)
     //   else      → " "
@@ -130,24 +150,39 @@ static void draw_menu() {
     gfx->setTextWrap(false);
     gfx->setTextSize(1);
 
-    // Title bar
-    gfx->fillRect(0, 0, 80, TITLE_H, COL_TITLE_BG);
+    int16_t W = menu_width();
+
+    // Title bar (with page indicator when more than one page exists)
+    gfx->fillRect(0, 0, W, title_h(), COL_TITLE_BG);
     gfx->setTextColor(COL_TITLE_TEXT);
     gfx->setCursor(2, 3);
-    gfx->print("ESP32 DONGLE");
+    if (total_pages() > 1) {
+        char buf[20];
+        snprintf(buf, sizeof(buf), "ESP32 DONGLE \t\t %d/%d", s_page + 1, total_pages());
+        gfx->print(buf);
+    } else {
+        gfx->print("ESP32 DONGLE");
+    }
 
-    // Item rows
-    for (int i = 0; i < NUM_ITEMS; i++) {
+    // Item rows on current page
+    int page_start = s_page * items_per_page();
+    int page_end   = page_start + items_per_page();
+    if (page_end > NUM_ITEMS) page_end = NUM_ITEMS;
+    for (int i = page_start; i < page_end; i++) {
         draw_item_row(i, false);
     }
 
     // Footer
-    gfx->drawFastHLine(0, 138, 80, COL_FOOTER);
+    gfx->drawFastHLine(0, footer_y(), W, COL_FOOTER);
     gfx->setTextColor(COL_FOOTER);
-    gfx->setCursor(2, 141);
-    gfx->print("short: next");
-    gfx->setCursor(2, 151);
-    gfx->print("long:  select");
+    gfx->setCursor(2, hint1_y());
+    if (is_portrait()) {
+        gfx->print("short: next");
+        gfx->setCursor(2, hint2_y());
+        gfx->print("long:  select");
+    } else {
+        gfx->print("< next | hold: select");
+    }
 }
 
 // ── Actions ───────────────────────────────────────────────────────────────────
@@ -193,17 +228,98 @@ static void action_usb_mode() {
 }
 
 static void action_rotate_screen() {
-    s_rotated = !s_rotated;
-    gfx->setRotation(s_rotated ? 3 : 1);
-    s_prefs.putBool("rotated", s_rotated);
+    s_rotation = (s_rotation + 3) % 4;     // cycle: 0→3→2→1→0 (each step = -90°)
+    gfx->setRotation(s_rotation);
+    s_page = s_selected / items_per_page(); // recalculate page for new orientation
+    s_prefs.putUChar("rotation", s_rotation);
+    draw_menu();
+}
+
+static void action_tamagotchi() {
+    tamagotchi_run(); // blocks until the user exits back to the main menu
+    draw_menu();
+}
+
+// ── Bluetooth submenu ─────────────────────────────────────────────────────────
+static const char *BT_ITEMS[]  = { "Keyboard receiver", "Return" };
+static const int   BT_N        = 2;
+static int         s_bt_sel    = 0;
+
+static void draw_bt_row(int i, bool confirmed) {
+    int16_t  fy  = first_y() + (int16_t)i * (item_h() + item_gap());
+    int16_t  ty  = fy + 3;
+    bool     cur = (i == s_bt_sel);
+    uint16_t bg  = (confirmed && cur) ? COL_ITEM_CONFIRMED_BG
+                 : cur               ? COL_ITEM_CURSOR_BG
+                 :                     COL_ITEM_BG;
+    uint16_t tc  = (confirmed && cur) ? COL_ITEM_CONFIRMED_TEXT
+                 : cur               ? COL_ITEM_CURSOR_TEXT
+                 :                     COL_ITEM_TEXT;
+    gfx->fillRect(0, fy, menu_width(), item_h(), bg);
+    gfx->setTextColor(tc);
+    gfx->setCursor(2, ty);
+    gfx->print(confirmed ? "v" : (cur ? ">" : " "));
+    gfx->setCursor(12, ty);
+    gfx->print(BT_ITEMS[i]);
+}
+
+static void draw_bt_submenu() {
+    gfx->fillScreen(COL_ITEM_BG);
+    gfx->setTextWrap(false);
+    gfx->setTextSize(1);
+    // Title bar
+    gfx->fillRect(0, 0, menu_width(), title_h(), COL_TITLE_BG);
+    gfx->setTextColor(COL_TITLE_TEXT);
+    gfx->setCursor(2, 3);
+    gfx->print("BLUETOOTH");
+    // Items
+    for (int i = 0; i < BT_N; i++) draw_bt_row(i, false);
+    // Footer
+    gfx->drawFastHLine(0, footer_y(), menu_width(), COL_FOOTER);
+    gfx->setTextColor(COL_FOOTER);
+    gfx->setCursor(2, hint1_y());
+    if (is_portrait()) {
+        gfx->print("short: next");
+        gfx->setCursor(2, hint2_y());
+        gfx->print("long:  select");
+    } else {
+        gfx->print("< next | hold: select");
+    }
+}
+
+static void bt_submenu_threshold_cb() {
+    gfx->setTextWrap(false);
+    gfx->setTextSize(1);
+    draw_bt_row(s_bt_sel, true);
+}
+
+static void action_bluetooth() {
+    s_bt_sel = 0;
+    draw_bt_submenu();
+    while (true) {
+        ButtonEvent ev = button_read(bt_submenu_threshold_cb);
+        if (ev == BTN_NONE) continue;
+        if (ev == BTN_SHORT) {
+            s_bt_sel = (s_bt_sel + 1) % BT_N;
+            draw_bt_submenu();
+        } else if (ev == BTN_LONG) {
+            if (s_bt_sel == 0) {
+                bluetooth_kbd_run(s_usb_active);
+                draw_bt_submenu();   // redraw submenu on return
+            } else {
+                break;               // "< Back"
+            }
+        }
+    }
     draw_menu();
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 void menu_init() {
     s_prefs.begin("display", false);
-    s_rotated = s_prefs.getBool("rotated", false);
-    if (s_rotated) gfx->setRotation(3);
+    s_rotation = s_prefs.getUChar("rotation", 1);   // default: rotation 1 = landscape
+    gfx->setRotation(s_rotation);
+    s_page = 0;
     draw_menu();
 }
 
@@ -219,6 +335,7 @@ void menu_tick() {
 
     if (ev == BTN_SHORT) {
         s_selected = (s_selected + 1) % NUM_ITEMS;
+        s_page     = s_selected / items_per_page();
         draw_menu();
     } else if (ev == BTN_LONG) {
         ITEMS[s_selected].action();

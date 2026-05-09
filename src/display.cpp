@@ -28,6 +28,14 @@ void display_init() {
   gfx->begin();
 }
 
+void display_set_brightness(uint8_t /*brightness*/) {
+  // BL pin is hardwired to 3.3V – software dimming not possible without
+  // hardware modification (connect BL through a transistor to a free GPIO).
+}
+
+void display_off() { gfx->displayOff(); }
+void display_on()  { gfx->displayOn();  }
+
 // ── Primitive ────────────────────────────────────────────────────────────────
 
 void display_print_line(int16_t x, int16_t y, const String &text, uint16_t color) {
@@ -106,11 +114,31 @@ void display_usb_screen(bool ready) {
   gfx->fillScreen(0x0000);
   gfx->setTextWrap(false);
 
-  // "USB" – large, cyan, centered (3 chars × 18 px = 54 px → x = 13)
+  // "USB" – large, cyan, left-aligned to leave room for bus-mode label
   gfx->setTextSize(3);
   gfx->setTextColor(0x07FF);
-  gfx->setCursor(13, 18);
+  gfx->setCursor(0, 18);
   gfx->print("USB");
+
+  // Bus-mode label ("SPI" or "MMC") – small, yellow, top-right corner
+  // size-1 char = 6 px wide; 3 chars = 18 px → x = 80-18 = 62
+  // vertically centred in USB row: y = 18 + (24-8)/2 = 26
+  gfx->setTextSize(1);
+  gfx->setTextColor(0xFFE0);
+  gfx->setCursor(62, 26);
+  gfx->print(sdcard_bus_name());
+
+  // Bus width ("4-bit" / "1-bit") – below the mode label, only for SDMMC
+  // size-1 = 6 px/char; "4-bit" = 5 chars = 30 px → x = 80-30 = 50
+  {
+    uint8_t bw = sdcard_bus_width();
+    if (bw > 0) {
+      gfx->setTextSize(1);
+      gfx->setTextColor(0xFFE0);
+      gfx->setCursor(50, 44);
+      gfx->print(String(bw) + "-bit");
+    }
+  }
 
   // "DRIVE" – medium, white, centered (5 chars × 12 px = 60 px → x = 10)
   gfx->setTextSize(2);
