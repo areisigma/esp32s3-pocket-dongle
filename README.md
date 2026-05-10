@@ -41,6 +41,7 @@
 - [ ] Tamagotchi thing
 - [ ] BLE receiver for keyboard
 - [ ] BLE receiver for anything
+- [ ] Saved BLE devices
 
 ---
 
@@ -49,7 +50,6 @@
 - [ ] HID as keyboard/mouse (scripts)
 - [ ] Some WiFi??
 - [ ] 2FA key
-- [ ] Saved BLE devices
 
 ---
 
