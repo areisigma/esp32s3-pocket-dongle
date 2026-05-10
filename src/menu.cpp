@@ -14,7 +14,7 @@
 #include "sdcard.h"
 #include "usb_msc.h"
 #include "tamagotchi.h"
-#include "bluetooth_kbd.h"
+#include "bluetooth.h"
 #include <Preferences.h>
 
 // ── Paleta kolorów – zmień wartości RGB, aby dostosować wygląd menu ──────────
@@ -74,11 +74,11 @@ struct MenuItem {
 };
 
 static const MenuItem ITEMS[] = {
-    { "SD Info",     action_sd_info,       nullptr        },
+    { "Bluetooth",   action_bluetooth,     nullptr        },
     { "USB Storage", action_usb_mode,      &s_usb_active  },
+    { "SD Info",     action_sd_info,       nullptr        },
     { "Flip Screen", action_rotate_screen, nullptr        },
     { "Tamagotchi",  action_tamagotchi,    nullptr        },
-    { "Bluetooth",   action_bluetooth,     nullptr        },
 };
 
 static const int NUM_ITEMS = (int)(sizeof(ITEMS) / sizeof(ITEMS[0]));
@@ -241,12 +241,17 @@ static void action_tamagotchi() {
 }
 
 // ── Bluetooth submenu ─────────────────────────────────────────────────────────
-static const char *BT_ITEMS[]  = { "Keyboard receiver", "Return" };
-static const int   BT_N        = 2;
+static const char *BT_ITEMS[]  = { "Connect", "Devices", "Keyboard receiver",
+                                "Common Receiver", "Return" };
+static const int   BT_N        = 5;
 static int         s_bt_sel    = 0;
+static int         s_bt_page   = 0;
 
 static void draw_bt_row(int i, bool confirmed) {
-    int16_t  fy  = first_y() + (int16_t)i * (item_h() + item_gap());
+    int page_start = s_bt_page * items_per_page();
+    int row = i - page_start;
+    if (row < 0 || row >= items_per_page()) return;
+    int16_t  fy  = first_y() + (int16_t)row * (item_h() + item_gap());
     int16_t  ty  = fy + 3;
     bool     cur = (i == s_bt_sel);
     uint16_t bg  = (confirmed && cur) ? COL_ITEM_CONFIRMED_BG
@@ -272,8 +277,11 @@ static void draw_bt_submenu() {
     gfx->setTextColor(COL_TITLE_TEXT);
     gfx->setCursor(2, 3);
     gfx->print("BLUETOOTH");
-    // Items
-    for (int i = 0; i < BT_N; i++) draw_bt_row(i, false);
+    // Items (current page only)
+    int bt_ps = s_bt_page * items_per_page();
+    int bt_pe = bt_ps + items_per_page();
+    if (bt_pe > BT_N) bt_pe = BT_N;
+    for (int i = bt_ps; i < bt_pe; i++) draw_bt_row(i, false);
     // Footer
     gfx->drawFastHLine(0, footer_y(), menu_width(), COL_FOOTER);
     gfx->setTextColor(COL_FOOTER);
@@ -294,20 +302,31 @@ static void bt_submenu_threshold_cb() {
 }
 
 static void action_bluetooth() {
-    s_bt_sel = 0;
+    s_bt_sel  = 0;
+    s_bt_page = 0;
     draw_bt_submenu();
     while (true) {
         ButtonEvent ev = button_read(bt_submenu_threshold_cb);
         if (ev == BTN_NONE) continue;
         if (ev == BTN_SHORT) {
-            s_bt_sel = (s_bt_sel + 1) % BT_N;
+            s_bt_sel  = (s_bt_sel + 1) % BT_N;
+            s_bt_page = s_bt_sel / items_per_page();
             draw_bt_submenu();
         } else if (ev == BTN_LONG) {
             if (s_bt_sel == 0) {
-                bluetooth_kbd_run(s_usb_active);
-                draw_bt_submenu();   // redraw submenu on return
+                bluetooth_connect_run(s_usb_active);       // Connect
+                draw_bt_submenu();
+            } else if (s_bt_sel == 1) {
+                bluetooth_devices_run(s_usb_active);       // Devices
+                draw_bt_submenu();
+            } else if (s_bt_sel == 2) {
+                bluetooth_kbd_run(s_usb_active);           // Keyboard receiver
+                draw_bt_submenu();
+            } else if (s_bt_sel == 3) {
+                bluetooth_common_receiver_run(s_usb_active); // Common Receiver
+                draw_bt_submenu();
             } else {
-                break;               // "< Back"
+                break;   // Return
             }
         }
     }

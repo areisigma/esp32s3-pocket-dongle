@@ -39,15 +39,17 @@
 - [ ] USB Storage
 - [ ] Screen rotation
 - [ ] Tamagotchi thing
-- [ ] BLE receiver
+- [ ] BLE receiver for keyboard
+- [ ] BLE receiver for anything
 
 ---
 
 ## To do
 
-- [ ] HID as keyboard/mouse
+- [ ] HID as keyboard/mouse (scripts)
 - [ ] Some WiFi??
 - [ ] 2FA key
+- [ ] Saved BLE devices
 
 ---
 
