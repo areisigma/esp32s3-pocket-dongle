@@ -1233,12 +1233,14 @@ static void bt_connect_draw_screen() {
 }
 
 // Forward loop for Connect mode:
-//   Hold 500 ms  → BTN_LONG      → exit (startup flag always cleared on exit)
+//   Hold 500 ms  → BTN_LONG      → exit; returns true  (caller should clear startup flag)
 //   Hold 3000 ms → BTN_VERY_LONG → save startup flag to NVS, keep forwarding
-static void bt_connect_fwd_loop() {
+//   Device disconnects             → returns false (caller may retry in startup mode)
+static bool bt_connect_fwd_loop() {
     display_set_brightness(128);
-    bool     screen_on = true;
-    uint32_t last_wake = millis();
+    bool     screen_on   = true;
+    bool     user_exited = false;
+    uint32_t last_wake   = millis();
 
     while (s_connected) {
         ButtonEvent ev = button_read(bt_connect_hint_long,
@@ -1260,6 +1262,7 @@ static void bt_connect_fwd_loop() {
                 bt_connect_hint(0);
                 last_wake = millis();
             } else if (ev == BTN_LONG) {
+                user_exited = true;
                 break;
             } else if (ev != BTN_NONE) {
                 last_wake = millis();
@@ -1274,12 +1277,31 @@ static void bt_connect_fwd_loop() {
     if (s_connected) s_client->disconnect();
     s_connected = false;
     display_set_brightness(255);
-    bt_startup_clear();
     delay(200);
+    return user_exited;
 }
 
 bool bluetooth_connect_is_startup() {
     return bt_startup_check();
+}
+
+// Helper: show the startup-mode retry screen and wait up to 3 s for button exit.
+// Returns true if the user long-pressed (wants to leave), false to retry.
+static bool bt_connect_retry_wait(const char *error_line, const char *dev_name) {
+    gfx->fillScreen(BT_ITEM_BG);
+    gfx->setTextWrap(false);
+    gfx->setTextSize(1);
+    bt_draw_title("BT CONNECT");
+    display_print_line(2, bt_first_y() + 2,  error_line, BT_ERROR);
+    display_print_line(2, bt_first_y() + 16, dev_name,   BT_CURSOR_TEXT);
+    display_print_line(2, bt_first_y() + 32, "Retrying...",    BT_WARNING);
+    display_print_line(2, bt_first_y() + 50, "Hold btn: exit", BT_FOOTER);
+    uint32_t t = millis();
+    while (millis() - t < 3000) {
+        if (button_read(nullptr) == BTN_LONG) return true;
+        delay(10);
+    }
+    return false;
 }
 
 void bluetooth_connect_run(bool usb_busy) {
@@ -1307,65 +1329,97 @@ void bluetooth_connect_run(bool usb_busy) {
         s_connected = false;
     }
 
+    s_connect_is_startup = bt_startup_check();
     const BLESavedDev &dev = s_saved[s_saved_sel];
 
-    gfx->fillScreen(BT_ITEM_BG);
-    gfx->setTextWrap(false);
-    gfx->setTextSize(1);
-    bt_draw_title("BT CONNECT");
-    display_print_line(2, bt_first_y() + 2,  "Connecting to:", BT_INFO);
-    display_print_line(2, bt_first_y() + 16, dev.name,         BT_CURSOR_TEXT);
-    display_print_line(2, bt_first_y() + 30, "Please wait...", BT_HINT);
-
-    if (!s_client) {
-        s_client = NimBLEDevice::createClient();
-        s_client->setClientCallbacks(&s_client_cb, false);
-        s_client->setConnectionParams(12, 12, 0, 100);
-        s_client->setConnectTimeout(5);  // 5 s timeout
-    }
-
-    NimBLEAddress ble_addr(std::string(dev.addr), dev.addr_type);
-    s_connected = false;
-    if (!s_client->connect(ble_addr)) {
-        display_print_line(2, bt_first_y() + 50, "Connect failed!", BT_ERROR);
-        delay(2000);
-        return;
-    }
-
-    NimBLERemoteService *hid_svc = s_client->getService(NimBLEUUID((uint16_t)0x1812));
-    if (!hid_svc) {
-        display_print_line(2, bt_first_y() + 50, "No HID service!", BT_ERROR);
-        s_client->disconnect();
-        delay(2000);
-        return;
-    }
-
-    bool dev_is_mouse = dev.is_mouse;
-    int  sub_count    = dev_is_mouse ? subscribe_mouse(hid_svc) : 0;
-
-    auto *chars = hid_svc->getCharacteristics(true);
-    for (auto *chr : *chars) {
-        if (chr->getUUID() == NimBLEUUID((uint16_t)0x2A4D) && chr->canNotify()) {
-            if (dev_is_mouse && sub_count > 0) continue;
-            auto cb = [dev_is_mouse](NimBLERemoteCharacteristic *,
-                                     uint8_t *data, size_t len, bool) {
-                if (dev_is_mouse) forward_mouse_report(data, len);
-                else              forward_kbd_report(data, len);
-            };
-            if (chr->subscribe(true, cb)) sub_count++;
+    while (true) {
+        gfx->fillScreen(BT_ITEM_BG);
+        gfx->setTextWrap(false);
+        gfx->setTextSize(1);
+        bt_draw_title("BT CONNECT");
+        display_print_line(2, bt_first_y() + 2,  "Connecting to:", BT_INFO);
+        display_print_line(2, bt_first_y() + 16, dev.name,         BT_CURSOR_TEXT);
+        display_print_line(2, bt_first_y() + 30, "Please wait...", BT_HINT);
+        if (s_connect_is_startup) {
+            display_print_line(2, bt_first_y() + 46, "Hold btn: exit", BT_FOOTER);
         }
-    }
 
-    if (sub_count == 0) {
-        display_print_line(2, bt_first_y() + 50, "No HID reports!", BT_WARNING);
-        s_client->disconnect();
-        delay(2000);
-        return;
-    }
+        if (!s_client) {
+            s_client = NimBLEDevice::createClient();
+            s_client->setClientCallbacks(&s_client_cb, false);
+            s_client->setConnectionParams(12, 12, 0, 100);
+            s_client->setConnectTimeout(5);  // 5 s timeout
+        }
 
-    s_connect_dev_name   = dev.name;
-    s_connect_dev_mouse  = dev_is_mouse;
-    s_connect_is_startup = bt_startup_check();
-    bt_connect_draw_screen();
-    bt_connect_fwd_loop();
+        NimBLEAddress ble_addr(std::string(dev.addr), dev.addr_type);
+        s_connected = false;
+        if (!s_client->connect(ble_addr)) {
+            if (!s_connect_is_startup) {
+                display_print_line(2, bt_first_y() + 50, "Connect failed!", BT_ERROR);
+                delay(2000);
+                return;
+            }
+            if (bt_connect_retry_wait("Connect failed!", dev.name)) {
+                bt_startup_clear();
+                return;
+            }
+            continue;
+        }
+
+        NimBLERemoteService *hid_svc = s_client->getService(NimBLEUUID((uint16_t)0x1812));
+        if (!hid_svc) {
+            s_client->disconnect();
+            if (!s_connect_is_startup) {
+                display_print_line(2, bt_first_y() + 50, "No HID service!", BT_ERROR);
+                delay(2000);
+                return;
+            }
+            if (bt_connect_retry_wait("No HID service!", dev.name)) {
+                bt_startup_clear();
+                return;
+            }
+            continue;
+        }
+
+        bool dev_is_mouse = dev.is_mouse;
+        int  sub_count    = dev_is_mouse ? subscribe_mouse(hid_svc) : 0;
+
+        auto *chars = hid_svc->getCharacteristics(true);
+        for (auto *chr : *chars) {
+            if (chr->getUUID() == NimBLEUUID((uint16_t)0x2A4D) && chr->canNotify()) {
+                if (dev_is_mouse && sub_count > 0) continue;
+                auto cb = [dev_is_mouse](NimBLERemoteCharacteristic *,
+                                         uint8_t *data, size_t len, bool) {
+                    if (dev_is_mouse) forward_mouse_report(data, len);
+                    else              forward_kbd_report(data, len);
+                };
+                if (chr->subscribe(true, cb)) sub_count++;
+            }
+        }
+
+        if (sub_count == 0) {
+            s_client->disconnect();
+            if (!s_connect_is_startup) {
+                display_print_line(2, bt_first_y() + 50, "No HID reports!", BT_WARNING);
+                delay(2000);
+                return;
+            }
+            if (bt_connect_retry_wait("No HID reports!", dev.name)) {
+                bt_startup_clear();
+                return;
+            }
+            continue;
+        }
+
+        s_connect_dev_name  = dev.name;
+        s_connect_dev_mouse = dev_is_mouse;
+        bt_connect_draw_screen();
+        bool user_exited = bt_connect_fwd_loop();
+        if (user_exited) {
+            bt_startup_clear();
+            return;
+        }
+        if (!s_connect_is_startup) return;
+        // Startup mode + device disconnected: retry
+    }
 }
