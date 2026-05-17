@@ -28,13 +28,16 @@ void display_init() {
   gfx->begin();
 }
 
-void display_set_brightness(uint8_t /*brightness*/) {
-  // BL pin is hardwired to 3.3V – software dimming not possible without
-  // hardware modification (connect BL through a transistor to a free GPIO).
+// BL pin is hardwired to 3.3V on this module – brightness control is a no-op.
+void display_set_brightness(uint8_t /*brightness*/) {}
+
+void display_off() {
+  gfx->displayOff();
 }
 
-void display_off() { gfx->displayOff(); }
-void display_on()  { gfx->displayOn();  }
+void display_on() {
+  gfx->displayOn();
+}
 
 // ── Primitive ────────────────────────────────────────────────────────────────
 

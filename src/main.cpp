@@ -10,6 +10,8 @@
 #include "display.h"
 #include "button.h"
 #include "menu.h"
+#include "bluetooth.h"
+#include <Preferences.h>
 
 void setup() {
   Serial.begin(115200);
@@ -21,6 +23,18 @@ void setup() {
 
   // ── Button + Menu ──────────────────────────────────────────────────────────
   button_init();
+
+  // Apply saved screen rotation before any startup screen (BT Connect or menu)
+  {
+    Preferences p;
+    p.begin("display", true);
+    gfx->setRotation(p.getUChar("rotation", 1));
+    p.end();
+  }
+
+  if (bluetooth_connect_is_startup()) {
+    bluetooth_connect_run(false);
+  }
   menu_init();
 }
 

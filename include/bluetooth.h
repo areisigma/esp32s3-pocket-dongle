@@ -37,3 +37,7 @@ void bluetooth_devices_run(bool usb_busy);
 // (set via bluetooth_devices_run) and forward its HID reports to USB HID.
 // If no devices are saved, shows a hint to use the Devices screen first.
 void bluetooth_connect_run(bool usb_busy);
+
+// Returns true if the BT Connect auto-start flag is set in NVS.
+// Call before menu_init() in setup() to auto-launch Connect on boot.
+bool bluetooth_connect_is_startup();

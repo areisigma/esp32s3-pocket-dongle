@@ -1169,6 +1169,119 @@ void bluetooth_devices_run(bool usb_busy) {
 // ── Mode 4: Connect – connect to the active saved device ──────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
 
+// ── Startup flag in NVS (namespace "bt_misc", key "startup") ──────────────────
+static bool bt_startup_check() {
+    Preferences p;
+    p.begin("bt_misc", true);
+    bool v = p.getBool("startup", false);
+    p.end();
+    return v;
+}
+static void bt_startup_save() {
+    Preferences p;
+    p.begin("bt_misc", false);
+    p.putBool("startup", true);
+    p.end();
+}
+static void bt_startup_clear() {
+    Preferences p;
+    p.begin("bt_misc", false);
+    p.remove("startup");
+    p.end();
+}
+
+// ── Connected screen + forward loop for Connect mode ──────────────────────────
+static bool        s_connect_is_startup = false;
+static const char *s_connect_dev_name   = "";
+static bool        s_connect_dev_mouse  = false;
+
+// Redraws the hint line at bt_first_y()+50 (replaces "Hold btn: exit").
+// state: 0 = normal, 1 = 500 ms threshold (will exit), 2 = 3 s threshold (startup)
+static void bt_connect_hint(int state) {
+    int16_t y = bt_first_y() + 50;
+    gfx->fillRect(0, y - 1, bt_w(), bt_item_h() + 2, BT_ITEM_BG);
+    gfx->setTextWrap(false);
+    gfx->setTextSize(1);
+    gfx->setCursor(2, y);
+    if (state == 2) {
+        gfx->setTextColor(BT_WARNING);
+        gfx->print(bt_port() ? "Rel:STARTUP" : "Release: set STARTUP");
+    } else if (state == 1) {
+        gfx->setTextColor(BT_WARNING);
+        gfx->print(bt_port() ? "Rel: exit" : "Release: exit");
+    } else if (s_connect_is_startup) {
+        gfx->setTextColor(RGB565(0, 220, 0));
+        gfx->print(bt_port() ? "[STARTUP]" : "[STARTUP] 0.5s:exit");
+    } else {
+        gfx->setTextColor(BT_FOOTER);
+        gfx->print(bt_port() ? "0.5s:exit" : "0.5s:exit  3s:startup");
+    }
+}
+static void bt_connect_hint_long()     { bt_connect_hint(1); }
+static void bt_connect_hint_verylong() { bt_connect_hint(2); }
+
+static void bt_connect_draw_screen() {
+    gfx->fillScreen(BT_ITEM_BG);
+    gfx->setTextWrap(false);
+    gfx->setTextSize(1);
+    bt_draw_title("BT CONNECT");
+    display_print_line(2, bt_first_y() + 2,  "Connected:",         BT_INFO);
+    display_print_line(2, bt_first_y() + 16, s_connect_dev_name,   BT_CURSOR_TEXT);
+    display_print_line(2, bt_first_y() + 30,
+        s_connect_dev_mouse ? "Forwarding mouse..." : "Forwarding keys...", BT_HINT);
+    bt_connect_hint(0);
+}
+
+// Forward loop for Connect mode:
+//   Hold 500 ms  → BTN_LONG      → exit (startup flag always cleared on exit)
+//   Hold 3000 ms → BTN_VERY_LONG → save startup flag to NVS, keep forwarding
+static void bt_connect_fwd_loop() {
+    display_set_brightness(128);
+    bool     screen_on = true;
+    uint32_t last_wake = millis();
+
+    while (s_connected) {
+        ButtonEvent ev = button_read(bt_connect_hint_long,
+                                     bt_connect_hint_verylong, 3000);
+        if (!screen_on) {
+            if (ev != BTN_NONE) {
+                screen_on = true;
+                last_wake = millis();
+                display_on();
+                bt_connect_draw_screen();
+            }
+        } else {
+            if (millis() - last_wake > 10000UL) {
+                screen_on = false;
+                display_off();
+            } else if (ev == BTN_VERY_LONG) {
+                s_connect_is_startup = true;
+                bt_startup_save();
+                bt_connect_hint(0);
+                last_wake = millis();
+            } else if (ev == BTN_LONG) {
+                break;
+            } else if (ev != BTN_NONE) {
+                last_wake = millis();
+                bt_connect_hint(0);
+            }
+        }
+        delay(5);
+    }
+
+    if (!screen_on) display_on();
+    s_kbd.releaseAll();
+    if (s_connected) s_client->disconnect();
+    s_connected = false;
+    display_set_brightness(255);
+    bt_startup_clear();
+    delay(200);
+}
+
+bool bluetooth_connect_is_startup() {
+    return bt_startup_check();
+}
+
 void bluetooth_connect_run(bool usb_busy) {
     if (usb_busy) { bt_usb_error("BT CONNECT"); return; }
 
@@ -1250,14 +1363,9 @@ void bluetooth_connect_run(bool usb_busy) {
         return;
     }
 
-    gfx->fillScreen(BT_ITEM_BG);
-    gfx->setTextSize(1);
-    bt_draw_title("BT CONNECT");
-    display_print_line(2, bt_first_y() + 2,  "Connected:",   BT_INFO);
-    display_print_line(2, bt_first_y() + 16, dev.name,       BT_CURSOR_TEXT);
-    display_print_line(2, bt_first_y() + 30,
-        dev_is_mouse ? "Forwarding mouse..." : "Forwarding keys...", BT_HINT);
-    display_print_line(2, bt_first_y() + 50, "Hold btn: exit", BT_FOOTER);
-
-    bt_forward_loop();
+    s_connect_dev_name   = dev.name;
+    s_connect_dev_mouse  = dev_is_mouse;
+    s_connect_is_startup = bt_startup_check();
+    bt_connect_draw_screen();
+    bt_connect_fwd_loop();
 }

@@ -15,6 +15,7 @@
 #include "usb_msc.h"
 #include "tamagotchi.h"
 #include "bluetooth.h"
+#include "wifi.h"
 #include <Preferences.h>
 
 // ── Paleta kolorów – zmień wartości RGB, aby dostosować wygląd menu ──────────
@@ -58,6 +59,7 @@ static void action_usb_mode();
 static void action_rotate_screen();
 static void action_tamagotchi();
 static void action_bluetooth();
+static void action_wifi();
 
 // ── State ─────────────────────────────────────────────────────────────────────
 static bool        s_usb_active = false;   // USB MSC started → SD SPI bus no longer ours
@@ -75,6 +77,7 @@ struct MenuItem {
 
 static const MenuItem ITEMS[] = {
     { "Bluetooth",   action_bluetooth,     nullptr        },
+    { "WiFi",        action_wifi,          nullptr        },
     { "USB Storage", action_usb_mode,      &s_usb_active  },
     { "SD Info",     action_sd_info,       nullptr        },
     { "Flip Screen", action_rotate_screen, nullptr        },
@@ -237,6 +240,89 @@ static void action_rotate_screen() {
 
 static void action_tamagotchi() {
     tamagotchi_run(); // blocks until the user exits back to the main menu
+    draw_menu();
+}
+
+// ── WiFi submenu ──────────────────────────────────────────────────────────────
+static const char *WIFI_ITEMS[] = { "Router", "Hotspot", "Return" };
+static const int   WIFI_N       = 3;
+static int         s_wifi_sel   = 0;
+static int         s_wifi_page  = 0;
+
+static void draw_wifi_row(int i, bool confirmed) {
+    int page_start = s_wifi_page * items_per_page();
+    int row = i - page_start;
+    if (row < 0 || row >= items_per_page()) return;
+    int16_t  fy  = first_y() + (int16_t)row * (item_h() + item_gap());
+    int16_t  ty  = fy + 3;
+    bool     cur = (i == s_wifi_sel);
+    uint16_t bg  = (confirmed && cur) ? COL_ITEM_CONFIRMED_BG
+                 : cur               ? COL_ITEM_CURSOR_BG
+                 :                     COL_ITEM_BG;
+    uint16_t tc  = (confirmed && cur) ? COL_ITEM_CONFIRMED_TEXT
+                 : cur               ? COL_ITEM_CURSOR_TEXT
+                 :                     COL_ITEM_TEXT;
+    gfx->fillRect(0, fy, menu_width(), item_h(), bg);
+    gfx->setTextColor(tc);
+    gfx->setCursor(2, ty);
+    gfx->print(confirmed ? "v" : (cur ? ">" : " "));
+    gfx->setCursor(12, ty);
+    gfx->print(WIFI_ITEMS[i]);
+}
+
+static void draw_wifi_submenu() {
+    gfx->fillScreen(COL_ITEM_BG);
+    gfx->setTextWrap(false);
+    gfx->setTextSize(1);
+    gfx->fillRect(0, 0, menu_width(), title_h(), COL_TITLE_BG);
+    gfx->setTextColor(COL_TITLE_TEXT);
+    gfx->setCursor(2, 3);
+    gfx->print("WIFI");
+    int ws = s_wifi_page * items_per_page();
+    int we = ws + items_per_page();
+    if (we > WIFI_N) we = WIFI_N;
+    for (int i = ws; i < we; i++) draw_wifi_row(i, false);
+    gfx->drawFastHLine(0, footer_y(), menu_width(), COL_FOOTER);
+    gfx->setTextColor(COL_FOOTER);
+    gfx->setCursor(2, hint1_y());
+    if (is_portrait()) {
+        gfx->print("short: next");
+        gfx->setCursor(2, hint2_y());
+        gfx->print("long:  select");
+    } else {
+        gfx->print("< next | hold: select");
+    }
+}
+
+static void wifi_submenu_threshold_cb() {
+    gfx->setTextWrap(false);
+    gfx->setTextSize(1);
+    draw_wifi_row(s_wifi_sel, true);
+}
+
+static void action_wifi() {
+    s_wifi_sel  = 0;
+    s_wifi_page = 0;
+    draw_wifi_submenu();
+    while (true) {
+        ButtonEvent ev = button_read(wifi_submenu_threshold_cb);
+        if (ev == BTN_NONE) continue;
+        if (ev == BTN_SHORT) {
+            s_wifi_sel  = (s_wifi_sel + 1) % WIFI_N;
+            s_wifi_page = s_wifi_sel / items_per_page();
+            draw_wifi_submenu();
+        } else if (ev == BTN_LONG) {
+            if (s_wifi_sel == 0) {
+                wifi_router_run();
+                draw_wifi_submenu();
+            } else if (s_wifi_sel == 1) {
+                wifi_hotspot_run();
+                draw_wifi_submenu();
+            } else {
+                break;   // Return
+            }
+        }
+    }
     draw_menu();
 }
 
